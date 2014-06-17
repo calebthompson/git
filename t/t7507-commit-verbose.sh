@@ -3,12 +3,13 @@
 test_description='verbose commit template'
 . ./test-lib.sh
 
-cat >check-for-diff <<EOF
-#!$SHELL_PATH
-exec grep '^diff --git' "\$1"
+write_script check-for-diff <<-'EOF'
+	exec grep '^diff --git' "$1"
 EOF
-chmod +x check-for-diff
-test_set_editor "$PWD/check-for-diff"
+
+write_script check-for-no-diff <<-'EOF'
+	! check-for-diff
+EOF
 
 cat >message <<'EOF'
 subject
@@ -23,6 +24,7 @@ test_expect_success 'setup' '
 '
 
 test_expect_success 'initial commit shows verbose diff' '
+	test_set_editor "$PWD/check-for-diff" &&
 	git commit --amend -v
 '
 
@@ -38,14 +40,48 @@ check_message() {
 }
 
 test_expect_success 'verbose diff is stripped out' '
+	test_set_editor "$PWD/check-for-diff" &&
 	git commit --amend -v &&
 	check_message message
 '
 
 test_expect_success 'verbose diff is stripped out (mnemonicprefix)' '
-	git config diff.mnemonicprefix true &&
+	test_set_editor "$PWD/check-for-diff" &&
+	test_config diff.mnemonicprefix true &&
 	git commit --amend -v &&
 	check_message message
+'
+
+test_expect_success 'commit shows verbose diff with commit.verbose true' '
+	echo morecontent >>file &&
+	git add file &&
+	test_config commit.verbose true &&
+	test_set_editor "$PWD/check-for-diff" &&
+	git commit --amend
+'
+
+test_expect_success 'commit --verbose overrides commit.verbose false' '
+	echo evenmorecontent >>file &&
+	git add file &&
+	test_config commit.verbose false  &&
+	test_set_editor "$PWD/check-for-diff" &&
+	git commit --amend --verbose
+'
+
+test_expect_success 'commit does not show verbose diff with commit.verbose false' '
+	echo evenmorecontent >>file &&
+	git add file &&
+	test_config commit.verbose false &&
+	test_set_editor "$PWD/check-for-no-diff" &&
+	git commit --amend
+'
+
+test_expect_success 'commit --no-verbose overrides commit.verbose true' '
+	echo evenmorecontent >>file &&
+	git add file &&
+	test_config commit.verbose true &&
+	test_set_editor "$PWD/check-for-no-diff" &&
+	git commit --amend --no-verbose
 '
 
 cat >diff <<'EOF'
@@ -71,7 +107,7 @@ test_expect_success 'diff in message is retained with -v' '
 '
 
 test_expect_success 'submodule log is stripped out too with -v' '
-	git config diff.submodule log &&
+	test_config diff.submodule log &&
 	git submodule add ./. sub &&
 	git commit -m "sub added" &&
 	(
@@ -79,20 +115,14 @@ test_expect_success 'submodule log is stripped out too with -v' '
 		echo "more" >>file &&
 		git commit -a -m "submodule commit"
 	) &&
-	(
-		GIT_EDITOR=cat &&
-		export GIT_EDITOR &&
-		test_must_fail git commit -a -v 2>err
-	) &&
+	test_set_editor cat &&
+	test_must_fail git commit -a -v 2>err &&
 	test_i18ngrep "Aborting commit due to empty commit message." err
 '
 
 test_expect_success 'verbose diff is stripped out with set core.commentChar' '
-	(
-		GIT_EDITOR=cat &&
-		export GIT_EDITOR &&
-		test_must_fail git -c core.commentchar=";" commit -a -v 2>err
-	) &&
+	test_set_editor cat &&
+	test_must_fail git -c core.commentchar=";" commit -a -v 2>err &&
 	test_i18ngrep "Aborting commit due to empty commit message." err
 '
 
